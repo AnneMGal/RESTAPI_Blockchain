@@ -1,0 +1,282 @@
+*
+  Test HTTP Client
+  Context: Arduino, with WINC1500 module
+*/
+// include required libraries and config files
+#include <SPI.h>
+#include <WiFi101.h>
+//#include <ESP8266WiFi.h>    // use this instead of WiFi101 for ESP8266 modules
+#include <ArduinoHttpClient.h>
+#include <LiquidCrystal.h>
+#include <ArduinoJson.h>
+#include <Servo.h>
+
+WiFiClient netSocket;               // network socket to server
+//const char server[] = "104.131.5.90:5000";  // server name
+const char server[] = "104.131.5.90";  // server name
+
+// if at ITP, your network SSID (name)
+char ssid[] = "itpsandbox";        
+char pass[] = "NYU+s0a!+P?";
+
+// if at HOME, your network SSID (name)
+//char ssid[] = "x???x";        // your network SSID (name)
+//char pass[] = "x???x";
+
+//String route = "/price";              // API route
+//String route = "/blocks";              // API route
+
+String route = "";
+String json_field = "";
+
+String rawResult = "";
+long resultValue = 0;
+
+// initialize the library by associating any needed LCD interface pin
+// with the arduino pin number it is connected to
+const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+int timesPressed = 0;
+
+// https://www.arduino.cc/en/Tutorial/Button
+const int redButtonPin = 6;      // the number of the pushbutton pin
+const int greyButtonPin = 7;     // the number of the pushbutton pin
+const int blackButtonPin = 9;     // the number of the pushbutton pin
+
+const int PRICE = 1;
+const int BLOCKS = 2;
+const int MININGTIME = 3;
+
+int lastPressed = -1;
+int buttonChanged = 0;
+
+// variables will change:
+int redButtonState = 0;         // variable for reading the pushbutton status
+int greyButtonState = 0;        // variable for reading the pushbutton status
+int blackButtonState = 0;        // variable for reading the pushbutton status
+int doWebRequest = 0;           // should we do a web request?
+
+// create servo object to control a servo
+Servo myservo;  
+
+int pos = 0;    // variable to store the servo position
+
+void setup() {
+  Serial.begin(9600);           // initialize serial communication
+  Serial.println("in status");
+  // while you're not connected to a WiFi AP,
+  while ( WiFi.status() != WL_CONNECTED) {
+    Serial.print("Attempting to connect to Network named: ");
+    Serial.println(ssid);           // print the network name (SSID)
+    WiFi.begin(ssid, pass);         // try to connect
+    delay(2000);
+  }
+
+  // When you're connected, print out the device's network status:
+  IPAddress ip = WiFi.localIP();
+  Serial.print("IP Address: ");
+  Serial.println(ip);
+
+  // set up the LCD's number of columns and rows:
+  lcd.begin(16, 2);
+  // Print a message to the LCD.
+      lcd.clear();
+      lcd.print("Blockchain!");
+      lcd.setCursor(0, 1);
+      lcd.print("Press to begin");   
+
+  // initialize the pushbutton pin as an input:
+  pinMode(redButtonPin, INPUT);  
+  pinMode(greyButtonPin, INPUT);  
+  pinMode(blackButtonPin, INPUT);  
+
+  // attaches the servo on pin 8 to the servo object 
+  myservo.attach(8); 
+  }
+
+void loop() {
+  //delay(1000); 
+  //HttpClient http(netSocket, server, 8080);      // make an HTTP client
+
+  //delay(500);                    // wait 10 seconds
+
+  // set the cursor to column 0, line 1
+  // (note: line 1 is the second row, since counting begins with 0):
+  //lcd.setCursor(0, 1);
+
+  //////////////////
+  // determine the state of the buttons
+  //////////////////
+
+  // read the state of the pushbutton value:
+  greyButtonState = digitalRead(greyButtonPin);
+  redButtonState = digitalRead(redButtonPin);
+  blackButtonState = digitalRead(blackButtonPin);
+
+
+  // check if the pushbutton is pressed. If it is, the buttonState is HIGH:
+  if (greyButtonState == HIGH) {
+    // turn LED on:
+    timesPressed--;
+
+    if (lastPressed != PRICE){
+      buttonChanged = 1;
+      doWebRequest = 1;
+      Serial.println("button changed to: PRICE"); 
+    } else {
+      buttonChanged = 0;  
+    }
+    lastPressed = PRICE;
+    route = "/price";
+    json_field = "price";
+
+
+  } else if (redButtonState == HIGH) {
+    // turn LED on:
+    timesPressed++;
+    if (lastPressed != BLOCKS){
+      buttonChanged = 1;
+      doWebRequest = 1;
+      Serial.println("button changed to: BLOCKS"); 
+    } else {
+      buttonChanged = 0;  
+    }
+      lastPressed = BLOCKS;
+      route = "/blocks";
+      json_field = "height";
+
+
+  } else if (blackButtonState == HIGH) {
+    // turn LED on:
+    timesPressed++;
+    if (lastPressed != MININGTIME){
+      buttonChanged = 1;
+      doWebRequest = 1;
+      Serial.println("button changed to: MININGTIME"); 
+   } else {
+      buttonChanged = 0;  
+   }
+      lastPressed = MININGTIME;
+      route = "/minetime";
+      json_field = "miningtime";
+      
+      
+  } else {
+    buttonChanged = 0;  
+    // turn LED off:
+    //digitalWrite(ledPin, LOW);
+  }
+    
+  // print the number of seconds since reset:
+  //lcd.print(millis() / 1000);
+  //lcd.print(timesPressed);
+ 
+
+
+  if (buttonChanged){
+    //////////////////
+    // do web stuff
+    //////////////////
+  
+    if (doWebRequest){
+    
+      HttpClient http(netSocket, server, 5000);      // make an HTTP client
+     
+      http.get(route);  // make a GET request
+    
+      while (http.connected()) {       // while connected to the server,
+        if (http.available()) {        // if there is a response from the server,
+  
+  /*
+   
+  ---------------------
+  HTTP/1.1 200 OK
+  X-Powered-By: Express
+  Content-Type: application/json; charset=utf-8
+  Content-Length: 17
+  ETag: W/"11-8s4y7w16weFOLxpEe4ro18AKdZw"
+  Date: Sun, 26 Nov 2017 08:17:24 GMT
+  Connection: close
+  
+  {"height":495370}
+  --------------------- 
+   */
+  
+          // skip the headers
+          char endOfHeaders[] = "\r\n\r\n";
+          http.find(endOfHeaders);
+          
+          rawResult = http.readString();           // read it
+          Serial.println(rawResult);               // and print it
+  
+  
+          // parse result
+          // https://arduinojson.org/example/parser/
+          // https://github.com/bblanchon/ArduinoJson/blob/master/examples/JsonHttpClient/JsonHttpClient.ino
+          StaticJsonBuffer<200> jsonBuffer;
+          JsonObject& root = jsonBuffer.parseObject(rawResult);
+  
+          if (!root.success()) {
+            Serial.println("parseObject() failed");
+            return;
+          }
+  
+          resultValue = root[json_field]; 
+          Serial.println(json_field + ": " + resultValue);               // and print it
+        }
+      }
+      // when there's nothing left to the response,
+      http.stop();                     // close the request
+    }
+  
+    //////////////////
+    // print results
+    //////////////////
+  
+    if(lastPressed == BLOCKS){
+      lcd.clear();
+      lcd.print("Blocks: ");
+      //lcd.print(timesPressed);
+      lcd.print(resultValue);
+
+      int maxBlocks = 1000000;
+
+      int servoPos = (resultValue * 180) / maxBlocks;
+      myservo.write(servoPos);              // tell servo to go to position in variable 'pos'
+      delay(15);                       // waits 15ms for the servo to reach the position     
+      
+    } else if(lastPressed == PRICE){
+      lcd.clear();
+      lcd.print("Price: ");
+      lcd.print(resultValue);
+
+      int maxPrice = 10000;
+
+      int servoPos = (resultValue * 180) / maxPrice;
+      myservo.write(servoPos);              // tell servo to go to position in variable 'pos'
+      delay(15);                       // waits 15ms for the servo to reach the position   
+
+    } else if(lastPressed == MININGTIME){
+      lcd.clear();
+      lcd.print("Mining Time: ");
+      lcd.print(resultValue);
+
+      int maxMiningtime = 100;
+
+      int servoPos = (resultValue * 180) / maxMiningtime;
+      myservo.write(servoPos);              // tell servo to go to position in variable 'pos'
+      delay(15);                       // waits 15ms for the servo to reach the position 
+       
+    } else {
+      lcd.clear();
+      lcd.print("Blockchain!");
+      lcd.setCursor(0, 1);
+      lcd.print("Press to begin"); 
+    }
+  }
+  delay(10);
+    
+  // print the number of seconds since reset:
+  //lcd.print(millis() / 1000);
+
+}
